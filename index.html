@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Margen</title>
+<meta name="description" content="Tu biblioteca de novelas con alguien que las lee contigo.">
+<meta name="theme-color" content="#232850" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141726" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ESTANTE -->
+  <section class="view" id="view-shelf" data-view="shelf">
+    <header class="topbar">
+      <h1 class="brand">Margen</h1>
+      <button class="icon-btn" id="btn-search-toggle" aria-label="Buscar en la biblioteca">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      </button>
+    </header>
+
+    <div class="searchbar" id="searchbar" hidden>
+      <input type="search" id="lib-search" placeholder="Buscar una palabra o frase en tus novelas" autocomplete="off">
+      <div id="search-results" class="search-results"></div>
+    </div>
+
+    <div class="shelf-wrap">
+      <div id="shelf" class="shelf"></div>
+      <div id="shelf-empty" class="empty" hidden>
+        <p class="empty-title">Tu estante está vacío.</p>
+        <p>Añade los PDF de tus novelas. El texto se guarda en este teléfono y tu compañera de lectura podrá consultarlo cuando charlen.</p>
+        <button class="btn primary" data-action="add-books">Añadir PDF</button>
+      </div>
+    </div>
+
+    <div id="import-progress" class="import-progress" hidden>
+      <div class="import-label" id="import-label">Leyendo…</div>
+      <div class="bar"><div class="bar-fill" id="import-bar"></div></div>
+    </div>
+
+    <button class="fab" data-action="add-books" aria-label="Añadir PDF">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Añadir</span>
+    </button>
+    <input type="file" id="file-input" accept="application/pdf,.pdf,.txt,.md,text/plain" multiple hidden>
+  </section>
+
+  <!-- CHARLA -->
+  <section class="view" id="view-chat" data-view="chat" hidden>
+    <header class="topbar chat-top">
+      <button class="icon-btn" id="btn-chats" aria-label="Conversaciones">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      </button>
+      <div class="persona-head">
+        <span class="persona-avatar" id="persona-avatar">📖</span>
+        <div>
+          <div class="persona-name" id="persona-name">Vera</div>
+          <button class="reading-chip" id="reading-chip">Leyendo: todas</button>
+        </div>
+      </div>
+      <button class="icon-btn" id="btn-new-chat" aria-label="Nueva conversación">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </header>
+
+    <div class="messages" id="messages" aria-live="polite"></div>
+
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="Escribe un mensaje" enterkeyhint="send"></textarea>
+      <button class="send" id="btn-send" type="submit" aria-label="Enviar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <!-- AJUSTES -->
+  <section class="view" id="view-settings" data-view="settings" hidden>
+    <header class="topbar"><h1 class="title">Ajustes</h1></header>
+    <div class="settings">
+
+      <div class="group">
+        <h2>Personalidad</h2>
+        <p class="hint">Así será tu compañera o compañero de lectura. Empieza con una plantilla y cámbiala a tu gusto.</p>
+        <div class="presets" id="presets"></div>
+        <div class="row two">
+          <label>Nombre<input id="p-name" maxlength="40"></label>
+          <label class="emoji-field">Ícono<input id="p-emoji" maxlength="4"></label>
+        </div>
+        <label>Cómo es
+          <textarea id="p-personality" rows="4" placeholder="Carácter, humor, cómo trata a la gente…"></textarea></label>
+        <label>Lo que le gusta
+          <textarea id="p-likes" rows="3" placeholder="Géneros, tropos, tipos de personajes…"></textarea></label>
+        <label>Lo que no soporta
+          <textarea id="p-dislikes" rows="2" placeholder="Clichés, finales, actitudes…"></textarea></label>
+        <label>Cómo habla
+          <textarea id="p-style" rows="2" placeholder="Formal, informal, con humor, mensajes cortos o largos…"></textarea></label>
+        <label>Lo que sabe de ti
+          <textarea id="p-user" rows="3" placeholder="Tu nombre, qué escribes o lees, qué te interesa… (opcional)"></textarea></label>
+      </div>
+
+      <div class="group">
+        <h2>Conexión con Gemini</h2>
+        <p class="hint">Necesitas una clave gratuita de Google AI Studio. Se guarda solo en este teléfono.</p>
+        <label>Clave de API
+          <div class="key-row">
+            <input id="s-key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+            <button class="btn small" type="button" id="btn-key-show">Ver</button>
+          </div>
+        </label>
+        <a class="link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Obtener una clave en aistudio.google.com</a>
+        <div class="row two">
+          <label>Modelo<select id="s-model"></select></label>
+          <button class="btn small align-end" type="button" id="btn-test">Probar conexión</button>
+        </div>
+        <p class="status" id="test-status"></p>
+      </div>
+
+      <div class="group">
+        <h2>Cómo lee tus novelas</h2>
+        <label class="radio"><input type="radio" name="ctx" value="smart"> <span><b>Fragmentos relevantes</b><br>Busca las partes de tus novelas relacionadas con cada mensaje. Rápido y gasta poco del límite gratuito.</span></label>
+        <label class="radio"><input type="radio" name="ctx" value="full"> <span><b>Novela completa</b><br>Envía el texto entero de las novelas que esté leyendo. Mejor para análisis globales, pero agota el límite gratuito mucho más rápido.</span></label>
+        <label>Cantidad de fragmentos por mensaje: <b id="s-k-val">12</b>
+          <input type="range" id="s-k" min="4" max="40" step="2"></label>
+        <label>Creatividad: <b id="s-temp-val">0.9</b>
+          <input type="range" id="s-temp" min="0" max="1.5" step="0.1"></label>
+        <label class="check"><input type="checkbox" id="s-autoficha"> Crear una ficha de cada novela al añadirla (resumen, personajes y temas)</label>
+      </div>
+
+      <div class="group">
+        <h2>Tus datos</h2>
+        <p class="hint" id="storage-info">Todo se guarda en este teléfono.</p>
+        <div class="row wrap">
+          <button class="btn" type="button" id="btn-export">Exportar respaldo</button>
+          <button class="btn" type="button" id="btn-import">Importar respaldo</button>
+          <input type="file" id="backup-input" accept=".json,application/json" hidden>
+        </div>
+        <p class="hint">Si desinstalas la app se borra todo. Exporta un respaldo de vez en cuando.</p>
+        <button class="btn danger" type="button" id="btn-wipe">Borrar todas las conversaciones</button>
+      </div>
+
+      <p class="foot">Margen · versión 1.0</p>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="shelf" role="tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M9 4v16M13.5 5l4.5 14.5M3 20h18"/></svg>
+      <span>Estante</span></button>
+    <button class="tab" data-tab="chat" role="tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+      <span>Charla</span></button>
+    <button class="tab" data-tab="settings" role="tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>
+      <span>Ajustes</span></button>
+  </nav>
+</div>
+
+<!-- Hoja inferior genérica -->
+<div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" hidden>
+  <div class="sheet-grip"></div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<!-- Lector -->
+<div class="reader" id="reader" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="reader-close" aria-label="Cerrar">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div class="reader-title" id="reader-title"></div>
+    <span class="reader-page" id="reader-page"></span>
+  </header>
+  <div class="reader-body" id="reader-body"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
