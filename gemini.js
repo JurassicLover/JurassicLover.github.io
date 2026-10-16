@@ -43,8 +43,11 @@ async function post(url, key, body, signal) {
 export async function listModels(key) {
   let res;
   try {
-    res = await fetch(`${BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
-  } catch { throw new GeminiError('Sin conexión a internet.', 'network'); }
+    res = await fetch(`${BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined });
+  } catch (e) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new GeminiError('Gemini no respondió en 20 segundos. Revisa tu conexión o prueba abrir la app desde Chrome.', 'timeout');
+    throw new GeminiError('Sin conexión a internet, o el navegador bloqueó la conexión con Gemini.', 'network');
+  }
   if (!res.ok) { let b = null; try { b = await res.json(); } catch { /* */ } throw explain(res.status, b); }
   const data = await res.json();
   return (data.models || [])
@@ -78,40 +81,73 @@ function blockedError(reason) {
   return new GeminiError('Gemini bloqueó esta respuesta por sus filtros de contenido. Prueba a reformular la pregunta.', 'blocked');
 }
 
-export async function generate(opts) {
+// Combina la señal del usuario con un temporizador de inactividad.
+function watchdog(userSignal, ms) {
+  const ctl = new AbortController();
+  let timedOut = false, timer = null;
+  const arm = () => { clearTimeout(timer); timer = setTimeout(() => { timedOut = true; ctl.abort(); }, ms); };
+  const onUser = () => ctl.abort();
+  if (userSignal) { if (userSignal.aborted) ctl.abort(); else userSignal.addEventListener('abort', onUser, { once: true }); }
+  arm();
+  return {
+    signal: ctl.signal, arm,
+    done() { clearTimeout(timer); userSignal?.removeEventListener('abort', onUser); },
+    wrap(e) {
+      if (timedOut) return new GeminiError('Gemini tardó demasiado en responder. Inténtalo de nuevo; si se repite, elige otro modelo en Ajustes.', 'timeout');
+      return e;
+    },
+  };
+}
+
+export async function generate(opts, timeoutMs = 120000) {
   const { key, model, signal } = opts;
-  const res = await post(`${BASE}/models/${encodeURIComponent(model)}:generateContent`, key, buildBody(opts), signal);
-  const data = await res.json();
-  const text = textOf(data);
-  if (!text) { const r = blockReason(data); throw r ? blockedError(r) : new GeminiError('Gemini devolvió una respuesta vacía.', 'empty'); }
-  return text;
+  const w = watchdog(signal, timeoutMs);
+  try {
+    const res = await post(`${BASE}/models/${encodeURIComponent(model)}:generateContent`, key, buildBody(opts), w.signal);
+    const data = await res.json();
+    const text = textOf(data);
+    if (!text) { const r = blockReason(data); throw r ? blockedError(r) : new GeminiError('Gemini devolvió una respuesta vacía.', 'empty'); }
+    return text;
+  } catch (e) { throw w.wrap(e); }
+  finally { w.done(); }
 }
 
 // Respuesta en streaming (SSE). onText recibe el texto acumulado.
-export async function stream(opts, onText) {
+// Si no llega nada en `idleMs`, se corta y se avisa con un error 'timeout'.
+export async function stream(opts, onText, idleMs = 60000) {
   const { key, model, signal } = opts;
-  const res = await post(`${BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, key, buildBody(opts), signal);
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '', full = '', lastReason = null;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf('\n')) !== -1) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line.startsWith('data:')) continue;
-      const json = line.slice(5).trim();
-      if (!json || json === '[DONE]') continue;
-      let obj; try { obj = JSON.parse(json); } catch { continue; }
-      if (obj.error) throw explain(obj.error.code || 500, obj);
-      const t = textOf(obj);
-      if (t) { full += t; onText(full); }
-      lastReason = blockReason(obj) || lastReason;
+  const w = watchdog(signal, idleMs);
+  let full = '', lastReason = null;
+  try {
+    const res = await post(`${BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, key, buildBody(opts), w.signal);
+    w.arm();
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      w.arm();
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const json = line.slice(5).trim();
+        if (!json || json === '[DONE]') continue;
+        let obj; try { obj = JSON.parse(json); } catch { continue; }
+        if (obj.error) throw explain(obj.error.code || 500, obj);
+        const t = textOf(obj);
+        if (t) { full += t; onText(full); }
+        lastReason = blockReason(obj) || lastReason;
+      }
     }
-  }
+  } catch (e) {
+    const err = w.wrap(e);
+    if (err.code === 'timeout' && full) return full + ' …';
+    throw err;
+  } finally { w.done(); }
   if (!full) throw lastReason ? blockedError(lastReason) : new GeminiError('Gemini devolvió una respuesta vacía.', 'empty');
   if (lastReason) full += '\n\n_(La respuesta se cortó por los filtros de Gemini.)_';
   return full;

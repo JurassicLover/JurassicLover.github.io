@@ -1,5 +1,5 @@
 // Service worker: guarda la app para que abra sin conexión.
-const CACHE = 'margen-v1';
+const CACHE = 'margen-v3';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'app.js', 'db.js', 'extract.js', 'search.js', 'gemini.js', 'personas.js',

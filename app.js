@@ -131,7 +131,14 @@ async function importFiles(files) {
     label.textContent = `Leyendo ${f.name} (${i + 1} de ${files.length})`;
     bar.style.width = '0%';
     try {
-      const isPdf = /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name);
+      // Se reconoce el PDF por su contenido (Android a veces entrega el archivo sin extensión)
+      const head = new Uint8Array(await f.slice(0, 1024).arrayBuffer());
+      const headStr = String.fromCharCode(...head);
+      const isPdf = headStr.includes('%PDF-') || /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name);
+      if (!isPdf && /[\x00-\x08\x0e-\x1f]/.test(headStr.slice(0, 512))) {
+        toast(`«${f.name}» no es un PDF ni un archivo de texto. No se pudo leer.`, 5000);
+        continue;
+      }
       const res = isPdf ? await extractPdf(f, p => (bar.style.width = `${Math.round(p * 100)}%`)) : await extractText(f);
       const chars = res.pages.reduce((n, p) => n + p.length, 0);
       if (books.concat(added).some(b => b.fileName === f.name && b.chars === chars)) {
@@ -237,7 +244,7 @@ async function runFichas() {
       let full = t.pages.map((p, i) => `[p. ${i + 1}]\n${p}`).join('\n\n');
       if (full.length > FULL_LIMIT) full = full.slice(0, FULL_LIMIT) + '\n[…texto truncado…]';
       const prompt = `A continuación tienes el texto completo de la novela «${b.title}»${b.author ? ' de ' + b.author : ''}. Escribe en español una ficha de referencia para otra IA que charlará sobre ella. Usa exactamente estos apartados, cada uno como título en negrita en su propia línea:\n\n**Resumen**\nDe 8 a 12 líneas que cubran toda la trama, incluido el final (con spoilers).\n\n**Personajes principales**\nLista con viñetas: nombre, papel en la historia, rasgos y relaciones clave.\n\n**Ambientación**\nDónde y cuándo transcurre.\n\n**Temas y tono**\nDos o tres líneas.\n\n**Momentos clave**\nLista en orden con la página aproximada entre paréntesis.\n\nNo añadas nada más.\n\n=== TEXTO ===\n${full}`;
-      b.ficha = await gemini.generate({ key: settings.apiKey, model: settings.model, contents: [{ role: 'user', parts: [{ text: prompt }] }], temperature: 0.3 });
+      b.ficha = await gemini.generate({ key: settings.apiKey, model: settings.model, contents: [{ role: 'user', parts: [{ text: prompt }] }], temperature: 0.3 }, 300000);
       b.fichaStatus = 'done'; b.fichaError = null;
     } catch (err) {
       b.fichaStatus = 'error'; b.fichaError = err.message;
@@ -469,10 +476,16 @@ async function send(textArg) {
       ? `[Fragmentos de la biblioteca relacionados con este mensaje; la persona no los ve]\n${ctx.block}\n[Fin de los fragmentos]\n\nMensaje de la persona:\n${text}`
       : text;
     const contents = [...prior, { role: 'user', parts: [{ text: finalText }] }];
-    const full = await gemini.stream({
-      key: settings.apiKey, model: settings.model, system: systemPrompt(), contents,
-      temperature: settings.temperature, signal: abortCtl.signal,
-    }, t => { partial = t; live.innerHTML = md(t); scrollMessages(); });
+    const req = { key: settings.apiKey, model: settings.model, system: systemPrompt(), contents, temperature: settings.temperature, signal: abortCtl.signal };
+    let full;
+    try {
+      full = await gemini.stream(req, t => { partial = t; live.innerHTML = md(t); scrollMessages(); });
+    } catch (err) {
+      if (err.code !== 'timeout' || partial) throw err;
+      // El streaming no entregó nada: segundo intento sin streaming
+      live.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+      full = await gemini.generate(req, 90000);
+    }
     await saveAi(full, sources);
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -612,7 +625,8 @@ async function testConnection() {
       }
       saveSettings(); fillModels();
     }
-    await gemini.generate({ key: settings.apiKey, model: settings.model, contents: [{ role: 'user', parts: [{ text: 'Responde solo: listo' }] }], maxOutputTokens: 400 });
+    st.textContent = `Probando ${settings.model}…`;
+    await gemini.generate({ key: settings.apiKey, model: settings.model, contents: [{ role: 'user', parts: [{ text: 'Responde solo: listo' }] }] }, 45000);
     st.className = 'status ok'; st.textContent = `Conectado. Usando ${settings.model}.`;
     renderMessages();
     // Fichas pendientes de novelas añadidas sin clave
